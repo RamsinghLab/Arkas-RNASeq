@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/87336350.svg)](https://zenodo.org/badge/latestdoi/87336350)
+[![DOI](https://zenodo.org/badge/87348768.svg)](https://zenodo.org/badge/latestdoi/87348768)
 
 # Arkas BaseSpace Application
 the arkasBasespace library parses the single node json, handling multi-custom fasta upload appresults, multi control appResults, and multi comparisons appResults.
