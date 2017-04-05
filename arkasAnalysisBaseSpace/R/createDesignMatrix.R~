@@ -1,0 +1,28 @@
+createDesignMatrix<-function(selectNames){
+message("creating single covariate, two group comparison design matrix ...")
+#create vector of compare, control names,  rename.
+sampleCompareNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Name
+sampleControlNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Name
+
+
+sampleCompareID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Id
+sampleControlID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Id
+
+#stopifnot(length(sampleCompareNames)==length(sampleControlNames))
+totalNumberPairs<-(length(sampleCompareNames)+length(sampleControlNames))/2
+additionalColumns<-totalNumberPairs-1
+DF<-data.frame(samples=c(sampleCompareNames,sampleControlNames),ID=c(sampleCompareID,sampleControlID),Intercept=rep(1,length(c(sampleCompareNames,  sampleControlNames))),ControlVsComp=rep(0,length(c(sampleCompareNames,  sampleControlNames))), stringsAsFactors=FALSE)
+#find which ID is control, and which is not
+for(j in 1:nrow(DF)){
+if(DF[j,2] %in% sampleControlID){
+ DF[j,4]<-1
+   }
+}#For loop for marking Controls
+design<-DF[,2:ncol(DF)]
+design<-as.matrix(design[,2:ncol(design)])
+rownames(design)<-DF[,2]
+
+return(design)
+} #{{{ main
+
+

@@ -1,0 +1,44 @@
+#' create an ouptut Directory with correct paths for uploading to basespace
+#' @param selectNames  list of input ids created by formbuilder used to parse json file
+#' @param fileJSON      file json read from appSession
+#' @return outputPath   a path to output directory
+#' @export
+
+createChildOutputDirectory<-function(selectNames,fileJSON) {
+message("finding project ID ... ")
+project_Id<-findChildProjectId(selectNames,fileJSON)
+outputpath<-c("/data/output/appresults") #fixed path for bsfs enabled
+
+outputPath<-paste(outputpath,project_Id,sep="/") #required path must include project id to be uploaded back to BS
+message("creating /data/output/appresults/project-id directory")
+dir.create(outputPath)
+#results directory under project Id
+outputPath_results<-paste(outputPath,"results",sep="/")
+message("creating /data/output/appresults/project-id/results directory")
+dir.create(outputPath_results)
+
+#need generic method for creating sample name directory
+sampleName<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.Samples")]]$Name
+outputPath_sampleName<-paste(outputPath_results,sampleName,sep="/")
+dir.create(outputPath_sampleName)
+message(paste0("finished creating output sub-directories for ",sampleName ))
+
+
+message("creating /data/scratch/ directory ... for write access ... ")
+ if(file.exists("/data/scratch/downloads")!=TRUE){
+system("mkdir /data/scratch/downloads") 
+  } #if !/scratch/downloads
+    if(file.exists("/data/scratch/downloads/samples")!=TRUE){
+    system("mkdir /data/scratch/downloads/samples")
+   } #if !/scratch/downloads/samples
+ 
+   if(file.exists("data/scratch/downloads/fastaUploads")!=TRUE){
+   system("mkdir /data/scratch/downloads/fastaUploads")
+   }#if !/scratch/downloads/fastaUploads
+
+
+return(outputPath)
+}
+
+
+

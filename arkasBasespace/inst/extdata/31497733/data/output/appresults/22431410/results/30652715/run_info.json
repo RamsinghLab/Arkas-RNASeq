@@ -1,0 +1,9 @@
+{
+	"n_targets": 213784,
+	"n_bootstraps": 42,
+	"n_processed": 4000000,
+	"kallisto_version": "0.42.4",
+	"index_version": 10,
+	"start_time": "Tue Jan  5 19:54:34 2016",
+	"call": "kallisto quant -i /Package_data/fasta/ERCC_mergedWith_Homo_sapiens.GRCh38.81.cdna.all_mergedWith_Homo_sapiens.GRCh38.81.ncrna_mergedWith_Homo_sapiens.RepBase.20_12.mergedkallisto.0.42.4.fa.kidx -o /data/output/appresults/22431410/results/30652715 -b 42 -t 1 --bias /data/scratch/downloads/samples/30652715/RNA-041814-4-N_s10_L006_R1_006.fastq.gz /data/scratch/downloads/samples/30652715/RNA-041814-4-N_s10_L006_R2_006.fastq.gz"
+}

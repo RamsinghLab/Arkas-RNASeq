@@ -1,0 +1,20 @@
+---
+title: "Arkas: Transcript Abundance Quantification In Much Less Time"
+author:  "Anthony R. Colombo, Timothy J. Triche, Jr, Harold Pimentel"
+output:
+    html_document:
+      toc: true
+      number_sections: true
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+# Output Report
+Arkas-Quantification is the first step in obtaining analytical results from raw reads.  For Analytical results, please use the second application called Arkas-Analysis which can generate gene expression heatmaps, Reactome gene set enrichment analysis, and RUV normalization.  This application supports single cell experiments.   This output report merely displays the kallisto version used in quantifying transcripts used in parallel.  Please cite : http://biorxiv.org/content/early/2016/04/06/031435
+
+#Kallisto Version
+The kallisto version used for Arkas Quantification is:
+```
+kallisto, version 0.42.4
+
+```
+

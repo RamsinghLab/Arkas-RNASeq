@@ -1,0 +1,1023 @@
+---
+title: "Arkas: RNA-Seq Analysis In Much Less Time"
+author:  "Anthony R. Colombo, Timothy Triche Jr., Giridharan Ramsingh"
+output:
+    html_document:
+      toc: true
+      number_sections: true
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r load_library, message=FALSE, warning=FALSE, echo=FALSE}
+suppressWarnings(suppressPackageStartupMessages(library(arkas)))
+suppressPackageStartupMessages(library(TxDbLite))
+suppressWarnings(suppressPackageStartupMessages(library(speedSage)))
+suppressWarnings(suppressPackageStartupMessages(library(arkasBasespace)))
+suppressWarnings(suppressPackageStartupMessages(library(arkasAnalysisBaseSpace)))
+suppressPackageStartupMessages(library(jsonlite))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(EDASeq))
+suppressPackageStartupMessages(library(gplots))
+suppressPackageStartupMessages(library(Rccdashboard))
+suppressPackageStartupMessages(library(edgeR))
+suppressPackageStartupMessages(library(RUVSeq))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(circlize))
+suppressPackageStartupMessages(library(dendsort))
+suppressPackageStartupMessages(library(pvclust))
+```
+
+```{r setup_out_scratch, message=FALSE, warning=FALSE, echo=FALSE}
+appSession<-list()
+#grab JSON file
+fileJSON<-fromJSON("/data/input/AppSession.json")
+fastaPath<-c("/Package_data/fasta")
+
+#prepare folder hierarchy
+if(file.exists("/data/scratch/")!=TRUE){
+system("mkdir /data/scratch/")
+}
+
+if(file.exists("/data/output/")!=TRUE){
+system("mkdir /data/output/")
+    if(file.exists("/data/output/appresults")!=TRUE) {
+     system("mkdir /data/output/appresults")
+     }
+}
+
+
+fastqPath<-c("/data/input/samples") #source to be copied to scratch (fixed)
+    if(file.exists("/data/scratch/downloads")!=TRUE){
+system("mkdir /data/scratch/downloads")
+    if(file.exists("/data/scratch/downloads/samples")!=TRUE){
+    system("mkdir /data/scratch/downloads/samples")
+   }
+}#if mkdir /data/scratch/downloads
+
+
+scratchPath<-c("/data/scratch/downloads/samples")
+scratchFastaPath<-"/data/scratch/downloads/fastaUploads"
+
+appinputPath<-"/data/input/appresults"
+
+selectNames<-fileJSON$Properties$Items$Name
+
+#create output directory structure.
+project_Id<-findSingleNodeProjectId(selectNames,fileJSON)
+#create /data/output/projectID/Results and scratch directories
+outputPath<-createAppResultOutputDirectory(selectNames,fileJSON) 
+#creates /data/output/appresults/22431410/Results AnnotatedKexp , ercc-Analysis ,transcript-wise-Analysis, enrichment-Analysis , gene-wise-Analysis
+
+
+```
+
+```{r detect_species, message=FALSE, warning=FALSE,echo=FALSE}
+
+speciesId<-as.integer(fileJSON$Properties$Items$Content[[which(selectNames=="Input.species-radio")]])
+
+    if(speciesId==1){
+    jsonSpecies<-"Mus.musculus"
+    reactomeSpecies<-"Mus musculus"
+   
+    }
+
+    if(speciesId==2) {
+    jsonSpecies<-"Homo.sapiens"
+    reactomeSpecies<-"Homo sapiens"
+    }
+
+
+```
+
+```{r , message=FALSE, warning=FALSE, echo=FALSE}
+#create appSession
+#copy to scratch
+comparisonAppResultId<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-app-id")]]$Id
+controlAppResultId<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-app-id")]]$Id
+
+#find the transcript id
+if(length(which(selectNames=="Input.app-result-id"))>0) {
+transcriptId<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.app-result-id")]]$Id
+}
+
+if(length(which(selectNames=="Input.app-result-id")) == 0) {
+transcriptId<-"NOINPUT"
+}
+
+
+#copy all sample files to /data/scratch/downloads/samples
+appSession<-analysisAppSession(selectNames,scratchFastaPath,transcriptId,outputPath,scratchPath,appinputPath,comparisonAppResultId,controlAppResultId) 
+
+ #creates appSession with cmparison samples names, and control samples names, while copying all appResults to /data/scratch  and the list includes the fasta transcriptomes for downstream TxDblite package creation
+
+
+
+if(length(appSession)==0) {
+print("I detected either empty comparison samples ,or empty control samples...please re-upload comparison samples *and* control samples... stopping..")
+}
+
+stopifnot(length(appSession)>0)
+
+
+#TxDbLite, validate transcripts or build libraries
+defaultFastaPath<-"/Package_data/fasta/"
+defaultFastas<-dir(defaultFastaPath)[grepl("*.fa.gz",dir(defaultFastaPath))]
+
+uniqTranscript<-appSession$fastaUploads[!(appSession$fastaUploads %in% defaultFastas)]
+
+```
+
+#Annotating Kallisto Experiment against ENSEMBL/RepBase
+Here we list the default annotation libraries for Mouse and Human samples. Currently, we use only the default transcriptomes.
+
+```{r merge_kexp, warning=FALSE, echo=FALSE}
+#Merge Kallisto
+merged<-mergeKallisto(c(appSession$comparisonSamples,appSession$controlSamples)
+                         ,outputPath=appSession$sampleDirPath,summarize=TRUE)
+
+#Annotate Kexp
+annotatedKexp<-annotateFeatures(merged,"transcript")
+#create Design Matrix
+
+design<-createDesignMatrixFromAppSession(appSession)
+metadata(annotatedKexp)$design<-design
+#save(annotatedKexp,file=paste0(appSession$annotatedKexp_outputPath,"/annotatedKexp.RData"))
+
+```
+#ERCC Analysis
+If ERCC spike-ins are present in the samples, and if their counts are non-zero, Arkas-Analysis performs an analysis outputting FDR, ROC plots, and plots the FPR.vs.TPR for various ratio tests.  If ERCC counts are non-detected, then Arkas-Analysis removes unwanted variance using in silico negative controls, and outputs a heatmap of normalized counts.  Arkas provides raw expression counts and batch effect normalization where the users can decide which data set to be used in their analysis. 
+
+```{r ercc_analysis,  warning=FALSE, echo=FALSE, fig.height=9, fig.width=7}
+#Find ERCCs, if ERCCs found run Ercc analysis
+erccs<- counts(annotatedKexp)[grepl("^ERCC",rownames(counts(annotatedKexp))),]
+rowFilter<-which( (rowSums(erccs)>(ncol(erccs)/2))=="TRUE")
+
+if(nrow(erccs) >0) {
+ 
+    #detect if any erccs have  rowSums greater than the number of half the columns
+    if( length(rowFilter)>6 ) {
+     #run ercc analysis 
+     erccResults<-erccAnalysis(annotatedKexp,appSession)       
+     #for html output printing, must show all the erccResults$Figures 
+     for (i in 1:length(erccResults$Figures)) {
+      show(erccResults$Figures[i])
+    }
+
+    #run RUV normalizaiton with ercc spikes is 
+    
+     tuningParam<-1
+    ruvResults<-ruvNormalization(annotatedKexp,k=tuningParam,spikeIns=TRUE,p.cutoff=1,byLevel="gene_id")
+      write.csv(ruvResults$normalizedCounts,file=paste0(appSession$ercc_outputPath,"/ruvERCCNormalizedCounts.csv"),row.names=TRUE)
+          } #detected ercc counts
+
+} #nrow erccs >0
+
+#Run RUV normalization for inSilico case
+   if( nrow(erccs)==0 ||   length(rowFilter)<=6 )  {
+  #if no erccs detected,  or if no erccs have counts greater than 0,  run ruv with inSilico detection
+      tuningParam<-1
+      ruvResults<-ruvNormalization(annotatedKexp,k=tuningParam,spikeIns=FALSE,p.cutoff=1.00,inSilico=NULL,read.cutoff=3,byLevel="gene_id")
+       write.csv(ruvResults$normalizedCounts,file=paste0(appSession$ercc_outputPath,"/ruvInSilicoNormalizedCounts.csv"),row.names=TRUE)
+  
+    } #no erccs 
+
+
+#heatmap ruvResults
+gnCnts<-collapseBundles(annotatedKexp,"gene_id")
+
+comparisonMatch<-colnames(gnCnts)[colnames(gnCnts) %in% appSession$comparisonSamples]
+
+ for(i in 1:length(comparisonMatch) ) {
+ idx<-which(colnames(gnCnts)==comparisonMatch[i])
+ colnames(gnCnts)[idx]<-paste0("COMP_",i)
+ }
+
+controlMatch<-colnames(gnCnts)[colnames(gnCnts) %in% appSession$controlSamples]
+   for(i in 1:length(controlMatch) ) {
+  idx2<-which(colnames(gnCnts)==controlMatch[i])
+  colnames(gnCnts)[idx2]<-paste0("CNTRL_",i)
+   }
+
+
+
+ttt<-data.frame(term=c(appSession$comparisonSamples,appSession$controlSamples),suffix=colnames(gnCnts),type=c(rep("Trt",length(appSession$comparisonSamples)),rep("Ctrl",length(appSession$controlSamples))))
+
+weights<-ruvResults$W
+rownames(weights)<-colnames(ruvResults$normalizedCounts)
+
+phenoDat<-cbind(ttt,weights)
+ruvDesign<-model.matrix(~phenoDat$type+phenoDat$W_1)
+
+rownames(ruvDesign)<-colnames(annotatedKexp)
+
+
+colors<-brewer.pal(3,"Set2")
+x<-as.factor(phenoDat$type)
+
+plotRLE(gnCnts,outline=FALSE,ylim=c(-2,2),col=colors[x])
+title(main="Un-Normalized Counts")
+
+plotPCA(gnCnts,col=colors[x],cex=1.2,xlim=c(-2,2))
+title(main="Un-Normalized Counts PCA")
+
+plotPCA(gnCnts,col=colors[x],cex=1.2,3,xlim=c(-2,2))
+
+normalizedCounts<-ruvResults$normalizedCounts
+
+
+comparisonMatch<-colnames(normalizedCounts)[colnames(normalizedCounts) %in% appSession$comparisonSamples]
+
+ for(i in 1:length(comparisonMatch) ) {
+ idx<-which(colnames(normalizedCounts)==comparisonMatch[i])
+ colnames(normalizedCounts)[idx]<-paste0("COMP_",i)
+ }
+   
+controlMatch<-colnames(normalizedCounts)[colnames(normalizedCounts) %in% appSession$controlSamples]
+   for(i in 1:length(controlMatch)) {
+  idx2<-which(colnames(normalizedCounts)==controlMatch[i])
+  colnames(normalizedCounts)[idx2]<-paste0("CNTRL_",i)
+   }
+
+
+
+colors<-brewer.pal(3,"Set2")
+x2<-as.factor(phenoDat$type)
+
+plotRLE(normalizedCounts,outline=FALSE,ylim=c(-2,2),col=colors[x2])
+title(main="Normalized Counts")
+
+plotPCA(normalizedCounts,col=colors[x2],cex=1.2, xlim=c(-2,2))
+title(main="Normalized Counts PCA")
+
+plotPCA(normalizedCounts,col=colors[x2],cex=1.2,3,xlim=c(-2,2))
+```
+
+
+#Gene Level Analysis UnNormalized
+Gene Wise analysis is ran on two designs, first without model the removal of unwanted variance factors, and the other with the weights correcting unwanted variance by RUVSeq. 
+
+
+```{r arkas_gene_analysis_unnormalized,  warning=FALSE, echo=FALSE}
+#Run GWA , support Advaita, need gene names and gene titles
+
+
+GWA<-geneWiseAnalysis(annotatedKexp,design=design,
+                       how="cpm",
+                       p.cutoff=0.05,
+                       fold.cutoff=1,
+                       read.cutoff=1,
+                       species=jsonSpecies,
+                        fitOnly="FALSE",
+                        adjustBy="BH")
+
+#prepare for advaita output
+
+limmad<-as.data.frame(GWA$limmaWithMeta)
+limmad<-limmad[order(limmad$adj.P.Val),]
+
+#for subsetting
+lg<-which(colnames(limmad)=="logFC")
+aveEx<-which(colnames(limmad)=="AveExpr")
+tId<- which(colnames(limmad)=="t")
+adjP<- which(colnames(limmad)=="adj.P.Val")
+BId<- which(colnames(limmad)=="B")
+gnSym<- which(colnames(limmad)=="Gene.symbol")
+gnTit<- which(colnames(limmad)=="Gene.title")
+pValId<-which(colnames(limmad)=="P.Value")
+
+
+advaita<-cbind(rownames(limmad),
+                limmad[,adjP],
+                limmad[,pValId],
+                limmad[,tId],
+                limmad[,BId],
+                limmad[,lg],
+                as.character(limmad[,gnSym]))
+
+colnames(advaita)<-c("ID","adj.P.Val","P.Value","t","B","logFC","Gene.symbol")
+
+
+#save output
+write.table(advaita,file=paste0(appSession$gwa_outputPath,"/unNormalizedgeneWiseAnalysis.advaita.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+#format limmad for printing
+Gene.title<-format(limmad$Gene.title,justify="left")
+limmad$Gene.title<-Gene.title
+
+
+#print topTable
+if(nrow(limmad)>=40){
+
+   indx<-rownames(limmad) %in% GWA$topGenes
+   stdoutLimmad<-limmad[indx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+   stdoutLimm<-stdoutLimmad[order(stdoutLimmad$adj.P.Val),]
+   ggT<-format(stdoutLimm$Gene.title,justify="left") 
+   stdoutLimm$Gene.title<-ggT
+   kable(stdoutLimm[1:40,],caption="Top 40 Diff.Expressed Genes")
+    }
+
+
+if(nrow(limmad)<40) {
+  
+  indx<-rownames(limmad) %in% GWA$topGenes
+  outLimmad<-limmad[indx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+  stdoutLimm<-outLimmad[order(outLimmad$adj.P.Val),]
+  ggT2<-format(stdoutLimm$Gene.title,justify="left")
+  stdoutLimm$Gene.title<-ggT2
+  kable(stdoutLimm[1:nrow(stdoutLimm),],caption="Top Diff. Expressed Genes")
+  }
+
+write.table(GWA$top,file=paste0(appSession$gwa_outputPath,"/unNormalized.top.GWA.limma.txt"),quote=FALSE,row.names=TRUE,col.names=TRUE,sep="\t")
+write.csv(GWA$topGenes,file=paste0(appSession$gwa_outputPath,"/unNormalized.topGenes.limma.csv"),row.names=FALSE)
+save(GWA,file=paste0(appSession$gwa_outputPath,"/GWA.RData"))
+write.table(GWA$limmaWithMeta[,c(lg,aveEx,tId,pValId,adjP,BId,gnSym)],quote=FALSE,file=paste0(appSession$gwa_outputPath,"/limma.with.geneNames.txt"),row.names=TRUE,col.names=TRUE,sep="\t")
+
+hist(as.matrix(GWA$top$adj.P.Val),main="Adj.Pval UnNormalized Diff. Gene Expr",xlab="top.adj.P.Val")
+
+
+#plotting the top DE genes
+ if(nrow(limmad)>=40) {
+ sub2<-gnCnts[rownames(gnCnts) %in% rownames(stdoutLimm)[1:40],]
+ }
+
+ if(nrow(limmad)<40) {
+ sub2<-gnCnts[rownames(gnCnts) %in% rownames(stdoutLimm)[1:nrow(stdoutLimm)],]
+ }
+
+```
+
+```{r arkas_gene_plot_unnormalized,  warning=FALSE, echo=FALSE, fig.height=9, fig.width=7}
+tpm<-collapseTpm(annotatedKexp,"gene_id")
+df.tpm<-as.data.frame(tpm,stringsAsFactors=FALSE)
+targets<-rownames(sub2)
+
+xxx<-rownames(stdoutLimm) %in% targets
+gn.targets<-as.character(stdoutLimm$Gene.symbol[xxx])
+
+missingId<-which(gn.targets=="")
+gn.targets[missingId]<-targets[missingId]
+
+#subset tpm in targets
+idxTpm<-rownames(df.tpm) %in% targets
+mt<-as.matrix(df.tpm[idxTpm,])
+
+#put gene names in for loop
+for( i in 1:nrow(mt)){
+ g.idx<-which(rownames(mt)[i]==rownames(stdoutLimm))
+    if(as.character(stdoutLimm$Gene.symbol[g.idx])!=""){
+    rownames(mt)[i]<-as.character(stdoutLimm$Gene.symbol[g.idx])
+    }#if gene symbol exists
+}#for
+
+if(nrow(mt)>=28){
+x.pv<-pvclust(log(1+mt),nboot=100)
+dend<-dendsort(hclust(dist(log(1+mt))),isReverse=TRUE)
+
+h.unNormalized.tpm<-Heatmap(log(1+mt),name="log(1+tpm)",cluster_rows=dend,cluster_columns=x.pv$hclust,column_title="No RUV Top Genes P.Val 0.05",row_names_gp=gpar(fontsize=6))
+h.unNormalized.tpm
+}
+
+
+if(nrow(mt)<28){
+h.unNormalized.tpm<-Heatmap(log(1+mt),name="log(1+tpm)",column_title="No RUV Top Genes P.Val 0.05",row_names_gp=gpar(fontsize=6))
+h.unNormalized.tpm
+}
+
+```
+
+#Gene Level Analysis Including Removal of UnWanted Variance
+Here Arkas-Analysis models the gene expression count correction the unwanted factors.  
+Comparing Gene counts with removal of unwanted variance can help detect batch effects.  By default Arkas uses FDR procedure Benjami-Hochberg and discards genes that have less than 1 CPM across all samples.
+```{r arkas_gene_analysis_normalized,  warning=FALSE, echo=FALSE}
+
+ruvGWA<-geneWiseAnalysis(annotatedKexp,
+                      design=ruvDesign,
+                       how="cpm",
+                       p.cutoff=0.05,
+                       fold.cutoff=1,
+                       read.cutoff=1,
+                       species=jsonSpecies,
+                        fitOnly="FALSE",
+                        adjustBy="BH")
+
+
+ruvLimmad<-as.data.frame(ruvGWA$limmaWithMeta)
+ruvLimmad<-ruvLimmad[order(ruvLimmad$adj.P.Val),]
+#for subsetting
+lg<-which(colnames(ruvLimmad)=="logFC")
+aveEx<-which(colnames(ruvLimmad)=="AveExpr")
+tId<- which(colnames(ruvLimmad)=="t")
+adjP<- which(colnames(ruvLimmad)=="adj.P.Val")
+BId<- which(colnames(ruvLimmad)=="B")
+gnSym<- which(colnames(ruvLimmad)=="Gene.symbol")
+gnTit<- which(colnames(ruvLimmad)=="Gene.title")
+pValId<-which(colnames(ruvLimmad)=="P.Value")
+
+
+
+
+ruvAdvaita<-cbind(rownames(ruvLimmad),
+                ruvLimmad[,adjP],
+                ruvLimmad[,pValId],
+                ruvLimmad[,tId],
+                ruvLimmad[,BId],
+                ruvLimmad[,lg],
+                as.character(ruvLimmad[,gnSym]))
+
+
+
+
+colnames(ruvAdvaita)<-c("ID","adj.P.Val","P.Value","t","B","logFC","Gene.symbol")
+
+
+#save output
+write.table(ruvAdvaita,file=paste0(appSession$gwa_outputPath,"/NormalizedgeneWiseAnalysis.advaita.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+
+
+
+#format limmad for printing
+Gene.title<-format(ruvLimmad$Gene.title,justify="left")
+ruvLimmad$Gene.title<-Gene.title
+
+
+#print topTable
+if(nrow(ruvLimmad)>=40){
+
+   indx<-rownames(ruvLimmad) %in% ruvGWA$topGenes
+   ruvOutLimmad<-ruvLimmad[indx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+   ruvOutLimm<-ruvOutLimmad[order(ruvOutLimmad$adj.P.Val),]
+   ggT<-format(ruvOutLimm$Gene.title,justify="left")
+   ruvOutLimm$Gene.title<-ggT
+   kable(ruvOutLimm[1:40,],caption="Top RUV Diff. Expr. Genes")
+    }
+
+
+if(nrow(ruvLimmad)<40) {
+
+  indx<-rownames(ruvLimmad) %in% ruvGWA$topGenes
+  ruvOutLimmad<-ruvLimmad[indx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+  ruvOutLimm<-ruvOutLimmad[order(ruvOutLimmad$adj.P.Val),]
+  ggT2<-format(ruvOutLimm$Gene.title,justify="left")
+  ruvOutLimm$Gene.title<-ggT2
+  kable(ruvOutLimm[1:nrow(ruvOutLimm),],caption="Top RUV Diff. Expr Genes")
+  }
+
+
+write.table(ruvGWA$top,file=paste0(appSession$gwa_outputPath,"/Normalized.top.GWA.limma.txt"),quote=FALSE,row.names=TRUE,col.names=TRUE,sep="\t")
+write.csv(ruvGWA$topGenes,file=paste0(appSession$gwa_outputPath,"/Normalized.topGenes.limma.csv"),row.names=FALSE)
+save(ruvGWA,file=paste0(appSession$gwa_outputPath,"/ruvGWA.RData"))
+write.table(ruvGWA$limmaWithMeta[,c(lg,aveEx,tId,pValId,adjP,BId,gnSym)],quote=FALSE,file=paste0(appSession$gwa_outputPath,"/normalized.limma.with.geneNames.txt"),row.names=TRUE,col.names=TRUE,sep="\t")
+
+
+hist(as.matrix(ruvGWA$top$adj.P.Val),main="Adj.Pval Normalized Diff. Gene Expr",xlab="top.Adj.P.Val")
+
+
+#plotting the top DE genes
+if(nrow(ruvLimmad)>=40){
+ ruvSub<-ruvResults$normalizedCounts[rownames(ruvResults$normalizedCounts) %in% rownames(ruvOutLimm)[1:40],]
+ }
+if(nrow(ruvLimmad)<40) {
+ruvSub<-ruvResults$normalizedCounts[rownames(ruvResults$normalizedCounts) %in% rownames(ruvOutLimm)[1:nrow(ruvOutLimm)],]
+}
+
+
+itx<-which(colnames(ruvSub)==phenoDat$term)
+colnames(ruvSub)[itx]<-as.character(phenoDat$suffix)
+```
+```{r ruv_gene,warning=FALSE,echo=FALSE,fig.height=9,fig.width=7}
+
+ruv.tpm<-collapseTpm(annotatedKexp,"gene_id")
+ndf.tpm<-as.data.frame(ruv.tpm,stringsAsFactors=FALSE)
+ruv.targets<-rownames(ruvSub)
+
+nxxx<-rownames(ruvOutLimmad) %in% ruv.targets
+ruv.gn.targets<-as.character(ruvOutLimmad$Gene.symbol[nxxx])
+
+missingId<-which(ruv.gn.targets=="")
+ruv.gn.targets[missingId]<-ruv.targets[missingId]
+
+#subset tpm in targets
+ruv.idxTpm<-rownames(ndf.tpm) %in% ruv.targets
+ruv.mt<-as.matrix(ndf.tpm[ruv.idxTpm,])
+
+#put gene names in for loop
+for( i in 1:nrow(ruv.mt)){
+ rg.idx<-which(rownames(ruv.mt)[i]==rownames(ruvOutLimmad))
+    if(as.character(ruvOutLimmad$Gene.symbol[rg.idx])!=""){
+    rownames(ruv.mt)[i]<-as.character(ruvOutLimmad$Gene.symbol[rg.idx])
+    }#if gene symbol exists
+}#for
+
+if(nrow(ruv.mt)>=28){
+x.pv<-pvclust(log(1+ruv.mt),nboot=100)
+dend<-dendsort(hclust(dist(log(1+ruv.mt))),isReverse=TRUE)
+
+
+
+h.Normalized.tpm<-Heatmap(log(1+ruv.mt),name="log(1+tpm)",cluster_rows=dend,cluster_columns=x.pv$hclust,column_title="Top RUV Genes TPM P.Val 0.05",row_names_gp=gpar(fontsize=6))
+h.Normalized.tpm
+}
+
+
+if(nrow(ruv.mt)<28){
+h.Normalized.tpm<-Heatmap(log(1+ruv.mt),name="log(1+tpm)",column_title="Top RUV Genes TPM P.Val 0.05",row_names_gp=gpar(fontsize=6))
+h.Normalized.tpm
+}
+
+```
+
+#Transcript Level Analysis UnNormalized Two-Group Comparison
+Arkas Analysis output transcript level differential transcript expression of un-normalized data. 
+
+```{r arkas_transcript_analysis_unnormalized,  warning=FALSE, echo=FALSE}
+
+# Run TWA
+TWA<-transcriptWiseAnalysis(annotatedKexp,
+                           design,
+                           p.cutoff=0.05,
+                           fold.cutoff=1,
+                           coef=2,
+                           read.cutoff=1,
+                           adjustBy="BH")
+
+if(nrow(TWA$top)<15){
+
+TWA<-transcriptWiseAnalysis(annotatedKexp,
+                           design,
+                           p.cutoff=0.05,
+                           fold.cutoff=1,
+                           coef=2,
+                           read.cutoff=1,
+                           adjustBy="none")
+}
+
+
+twaLimmad<-as.data.frame(TWA$limmaWithMeta)
+twaLimmad<-twaLimmad[order(twaLimmad$adj.P.Val),]
+#for subsetting
+lg<-which(colnames(twaLimmad)=="logFC")
+aveEx<-which(colnames(twaLimmad)=="AveExpr")
+tId<- which(colnames(twaLimmad)=="t")
+adjP<- which(colnames(twaLimmad)=="adj.P.Val")
+BId<- which(colnames(twaLimmad)=="B")
+gnSym<- which(colnames(twaLimmad)=="gene.name")
+gnTit<- which(colnames(twaLimmad)=="gene.id")
+pValId<-which(colnames(twaLimmad)=="P.Value")
+
+
+twaAdvaita<-cbind(rownames(twaLimmad),
+                twaLimmad[,adjP],
+                twaLimmad[,pValId],
+                twaLimmad[,tId],
+                twaLimmad[,BId],
+                twaLimmad[,lg],
+                as.character(twaLimmad[,gnSym]))
+
+colnames(twaAdvaita)<-c("ID","adj.P.Val","P.Value","t","B","logFC","Gene.symbol")
+
+
+
+#save output
+write.table(twaAdvaita,file=paste0(appSession$twa_outputPath,"/unNormalized.transcript.Wise-Analysis.advaita.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+
+#print topTable
+if(nrow(twaLimmad)>=50){
+   
+   tindx<-rownames(twaLimmad) %in% TWA$topTranscripts
+   tnxoutLimmad<-twaLimmad[tindx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+   tnxoutLimm<-tnxoutLimmad[order(tnxoutLimmad$adj.P.Val),]
+   kable(tnxoutLimm[1:50,],caption="Top Diff. Expr Transcripts")
+    }
+
+
+if(nrow(twaLimmad)<50) {
+  
+  tindx<-rownames(twaLimmad) %in% TWA$topTranscripts
+  tnxoutLimmad<-twaLimmad[tindx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+  tnxoutLimm<-tnxoutLimmad[order(tnxoutLimmad$adj.P.Val),]
+  kable(tnxoutLimm[1:nrow(tnxoutLimm),],caption="Top Diff. Expr Transcripts")
+  }
+
+
+write.table(TWA$top,file=paste0(appSession$twa_outputPath,"/unNormalized.top.transcript.limma.txt"),quote=FALSE,row.names=TRUE,col.names=TRUE,sep="\t")
+write.csv(TWA$topTranscripts,file=paste0(appSession$twa_outputPath,"/unNormalized.topTranscripts.limma.csv"),row.names=FALSE)
+save(TWA,file=paste0(appSession$twa_outputPath,"/TWA.RData"))
+write.table(TWA$limmaWithMeta[,c(lg,aveEx,tId,pValId,adjP,BId,gnSym,gnTit)],quote=FALSE,file=paste0(appSession$twa_outputPath,"/limma.with.transcript-Names.txt"),row.names=TRUE,col.names=TRUE,sep="\t")
+
+
+
+
+hist(as.matrix(TWA$top$adj.P.Val),main="Adj.Pval Diff. Expr Transcripts", xlab="top.adj.P.Val")
+
+if(nrow(twaLimmad)>=50){
+tnxSub<-counts(annotatedKexp)[rownames(counts(annotatedKexp)) %in% rownames(tnxoutLimm)[1:50],]
+}
+
+if(nrow(twaLimmad)<50){
+tnxSub<-counts(annotatedKexp)[rownames(counts(annotatedKexp)) %in% rownames(tnxoutLimm)[1:nrow(tnxoutLimm)],]
+}
+
+txtIdx<-which(colnames(tnxSub)==phenoDat$term)
+colnames(tnxSub)[txtIdx]<-as.character(phenoDat$suffix)
+```
+
+```{r arkas_tnx_plot_unnormalized,  warning=FALSE, echo=FALSE, fig.height=9, fig.width=7}
+
+
+tpm<-collapseTpm(annotatedKexp,"tx_id")
+tnx.df.tpm<-as.data.frame(tpm,stringsAsFactors=FALSE)
+tnx.targets<-rownames(tnxSub)
+
+#subset tpm in targets
+tnx.idxTpm<-rownames(tnx.df.tpm) %in% tnx.targets
+tnx.mt<-as.matrix(tnx.df.tpm[tnx.idxTpm,])
+
+if(nrow(tnx.mt)>=30){
+tnx.pv<-pvclust(log(1+tnx.mt),nboot=100)
+tnx.dend<-dendsort(hclust(dist(log(1+tnx.mt))),isReverse=TRUE)
+tnx.unNormalized.tpm<-Heatmap(log(1+tnx.mt),name="log(1+tpm)",cluster_rows=tnx.dend,cluster_columns=tnx.pv$hclust,column_title="Top Transcripts P.Val 0.05",row_names_gp=gpar(fontsize=7))
+tnx.unNormalized.tpm
+}
+
+if(nrow(tnx.mt)<30) {
+tnx.unNormalized.tpm<-Heatmap(log(1+tnx.mt),name="log(1+tpm)",column_title="Top Transcripts P.Val 0.05",row_names_gp=gpar(fontsize=7))
+tnx.unNormalized.tpm
+}
+
+```
+
+
+#Transcript Level Analysis Including Corrections for UnWanted Variance
+Arkas-Analysis performs transcrpit level analysis correcting for the factors of unwanted variance.
+```{r arkas_tnx_analysis_normalized,  warning=FALSE, echo=FALSE}
+
+
+#ruvTWA
+
+ruvTWA<-transcriptWiseAnalysis(annotatedKexp,
+                              ruvDesign,
+                              p.cutoff=0.05,
+                              fold.cutoff=1,
+                              coef=2,
+                              read.cutoff=1,
+                              adjustBy="BH")
+
+
+if(nrow(ruvTWA$top)<15){
+
+ruvTWA<-transcriptWiseAnalysis(annotatedKexp,
+                              ruvDesign,
+                              p.cutoff=0.05,
+                              fold.cutoff=1,
+                              coef=2,
+                              read.cutoff=1,
+                              adjustBy="none")
+                              
+
+
+}
+
+
+rtwaLimmad<-as.data.frame(ruvTWA$limmaWithMeta)
+rtwaLimmad<-rtwaLimmad[order(rtwaLimmad$adj.P.Val),]
+#for subsetting
+lg<-which(colnames(rtwaLimmad)=="logFC")
+aveEx<-which(colnames(rtwaLimmad)=="AveExpr")
+tId<- which(colnames(rtwaLimmad)=="t")
+adjP<- which(colnames(rtwaLimmad)=="adj.P.Val")
+BId<- which(colnames(rtwaLimmad)=="B")
+gnSym<- which(colnames(rtwaLimmad)=="gene.name")
+gnTit<- which(colnames(rtwaLimmad)=="gene.id")
+pValId<-which(colnames(rtwaLimmad)=="P.Value")
+
+
+rtwaAdvaita<-cbind(rownames(rtwaLimmad),
+                rtwaLimmad[,adjP],
+                rtwaLimmad[,pValId],
+                rtwaLimmad[,tId],
+                rtwaLimmad[,BId],
+                rtwaLimmad[,lg],
+                as.character(rtwaLimmad[,gnSym]))
+
+colnames(rtwaAdvaita)<-c("ID","adj.P.Val","P.Value","t","B","logFC","Gene.symbol")
+
+
+
+#save output
+write.table(rtwaAdvaita,file=paste0(appSession$twa_outputPath,"/Normalized.transcript.Wise-Analysis.advaita.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+
+
+
+#print topTable
+if(nrow(rtwaLimmad)>=50){
+   
+   tindx<-rownames(rtwaLimmad) %in% ruvTWA$topTranscripts
+   rtnxoutLimmad<-rtwaLimmad[tindx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+   rtnxoutLimm<-rtnxoutLimmad[order(rtnxoutLimmad$adj.P.Val),]
+   kable(rtnxoutLimm[1:50,],caption="Top RUV Diff. Expr Transcripts")
+    }
+    
+    
+if(nrow(rtwaLimmad)<50) {
+  
+  tindx<-rownames(rtwaLimmad) %in% ruvTWA$topTranscripts
+  rtnxoutLimmad<-rtwaLimmad[tindx,c(lg,aveEx,tId,adjP,BId,gnSym,gnTit)]
+  rtnxoutLimm<-rtnxoutLimmad[order(rtnxoutLimmad$adj.P.Val),]
+  kable(rtnxoutLimm[1:nrow(rtnxoutLimm),],caption="Top RUV Diff Expr Transcripts")
+  }
+  
+
+write.table(ruvTWA$top,file=paste0(appSession$twa_outputPath,"/Normalized.top.transcript.limma.txt"),quote=FALSE,row.names=TRUE,col.names=TRUE,sep="\t")
+write.csv(ruvTWA$topTranscripts,file=paste0(appSession$twa_outputPath,"/Normalized.topTranscripts.limma.csv"),row.names=FALSE)
+save(ruvTWA,file=paste0(appSession$twa_outputPath,"/ruvTWA.RData"))
+write.table(ruvTWA$limmaWithMeta[,c(lg,aveEx,tId,pValId,adjP,BId,gnSym,gnTit)],quote=FALSE,file=paste0(appSession$twa_outputPath,"/normalized.limma.with.transcript-Names.txt"),row.names=TRUE,col.names=TRUE,sep="\t")
+
+
+
+hist(as.matrix(ruvTWA$top$adj.P.Val),main="Adj.Pval Normalized Diff. Expr Transcript",xlab="top.Adj.P.Val")
+
+if(nrow(rtwaLimmad)>=50){
+tnxRuv<-counts(annotatedKexp)[rownames(counts(annotatedKexp)) %in% rownames(rtnxoutLimm)[1:50],]
+}
+
+if(nrow(rtwaLimmad)<50){
+tnxRuv<-counts(annotatedKexp)[rownames(counts(annotatedKexp)) %in% rownames(rtnxoutLimm)[1:nrow(rtnxoutLimm)],]
+}
+
+txtNdx<-which(colnames(tnxRuv)==phenoDat$term)
+colnames(tnxRuv)[txtNdx]<-as.character(phenoDat$suffix)
+```
+
+```{r arkas_tnx_plot_normalizedCts,  warning=FALSE, echo=FALSE, fig.height=9, fig.width=7}
+
+
+tpm<-collapseTpm(annotatedKexp,"tx_id")
+rtnx.df.tpm<-as.data.frame(tpm,stringsAsFactors=FALSE)
+tnx.targets<-rownames(tnxRuv)
+
+#subset tpm in targets
+rtnx.idxTpm<-rownames(rtnx.df.tpm) %in% tnx.targets
+ruv.tnx.mt<-as.matrix(rtnx.df.tpm[rtnx.idxTpm,])
+
+if(nrow(ruv.tnx.mt)>=27){
+rtnx.pv<-pvclust(log(1+ruv.tnx.mt),nboot=100)
+rtnx.dend<-dendsort(hclust(dist(log(1+ruv.tnx.mt))),isReverse=TRUE)
+ruv.tnx.unNormalized.tpm<-Heatmap(log(1+ruv.tnx.mt),name="log(1+tpm)",cluster_rows=rtnx.dend,cluster_columns=rtnx.pv$hclust,column_title="RUV Top Transcripts P.Val 0.05",row_names_gp=gpar(fontsize=7))
+ruv.tnx.unNormalized.tpm
+}
+
+if(nrow(ruv.tnx.mt)<27) {
+ruv.tnx.unNormalized.tpm<-Heatmap(log(1+ruv.tnx.mt),name="log(1+tpm)",column_title="RUV Top Transcripts P.Val 0.05",row_names_gp=gpar(fontsize=7))
+ruv.tnx.unNormalized.tpm
+}
+
+
+
+```
+
+
+#Enrichment Analysis
+Enrichment assumes that the variances between groups is not equal.
+
+```{r enrich_analysis_Transcripts, message=FALSE, warning=FALSE, echo=FALSE}
+#Run enrichment analysis
+
+#transcript level
+
+trnxMap<-mapToReactome(rownames(annotatedKexp),
+                       type="transcript",
+                       species=reactomeSpecies,
+                       build=84)
+
+rSets<-reactomeSets(species=reactomeSpecies,type="transcript",mappedReactome=trnxMap)
+idx<-which(rowSums(counts(annotatedKexp))>0)
+
+filteredTrnx<-counts(annotatedKexp)[idx,]
+
+tL<-log2(filteredTrnx+0.001)
+
+
+ for(i in 1:length(appSession$comparisonSamples) ) {
+ idx<-which(colnames(tL)==appSession$comparisonSamples[i])
+ colnames(tL)[idx]<-paste0("COMP_0")
+ }
+
+   for(i in 1:length(appSession$controlSamples)) {
+  idx2<-which(colnames(tL)==appSession$controlSamples[i])
+  colnames(tL)[idx2]<-paste0("CNTRL_1")
+   }
+
+sampleSplits<-split(tL,colnames(tL))
+sampleVars<-lapply(sampleSplits,var)
+print("Sample Group Variances")
+print(sampleVars)
+
+#running speedSage
+tx.Results<-qusageArm(tL,
+                      colnames(tL),
+                      "COMP_0-CNTRL_1", 
+                       rSets,
+                       var.equal=FALSE,
+                       n.points=2^12)
+  
+#print reactome plots
+kable(summary(tx.Results),caption="Transcript Enrichment")
+p.vals<-pdf.pVal(tx.Results)
+q.vals<-p.adjust(p.vals,method="fdr")
+tx.Stats<-data.frame(names(tx.Results$pathways),q.vals)
+write.table(tx.Stats,file=paste0(appSession$enrich_outputPath,"/transcript-enrichment-QValues.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+qs<-qsTable(tx.Results,number=numPathways(tx.Results))
+if(numPathways(tx.Results) <=10) {
+message("plotting confidence intervals of pathways")
+plotCIs(tx.Results)
+}
+
+if(numPathways(tx.Results)>10) {
+message(paste0("plotting ",numPathways(tx.Results), " detected pathways"))
+plot(tx.Results)
+}
+
+#plot URL
+message("printing Reactome Urls for exploration...")
+tx.Url<- getReactomeUrl(qs[,1])
+tx.DF<-data.frame(qs,tx.Url, stringsAsFactors=FALSE)
+
+data(reactomePathways,package="TxDbLite")
+
+indX<-names(reactomePathways) %in% tx.DF$pathway.name
+for(i in 1:nrow(tx.DF)) {
+inner<-which(tx.DF$pathway.name[i] == names(reactomePathways[indX]))
+tx.DF$Pathway.Description[i]<-reactomePathways[indX][[inner]]
+}
+tx.DF$Pathway.Description<-format(tx.DF$Pathway.Description,justify="left")
+
+
+trnxReactomePathways<-reactomePathways[indX]
+kable(tx.DF,caption="Full Enrichment Transcript Analysis")
+#save output
+
+#printing a list of reactomeIDs per gene-name
+rID.trnx<-lapply(rSets,function(x) mapHugo(x,byType="transcript"))
+rID.trnx<-rID.trnx[lapply(rID.trnx,length)>0]
+
+print("printing out the reactome pathway transcript sets and associated gene names")
+print(rID.trnx)
+
+save(rID.trnx,file=paste0(appSession$enrich_outputPath,"/rID.trnx.RData"))
+save(trnxReactomePathways,file=paste0(appSession$enrich_outputPath,"/trnxReactomePathways.RData"))
+save(rSets,file=paste0(appSession$enrich_outputPath,"/rSets.RData"))
+write.table(tx.DF,file=paste0(appSession$enrich_outputPath,"/transcript-enrichment.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+save(tx.Results,file=paste0(appSession$enrich_outputPath,"/tx.Results.RData"))
+
+
+```
+#Gene Level Enrichment
+Arkas Analysis only performs enrichment if the number of comparisons equals the number of controls.  It assumes that the variances between groups is not equal.
+
+```{r gene_enrich, message=FALSE,warning=FALSE,echo=FALSE}
+#gene level
+coll<-collapseBundles(annotatedKexp,"gene_id")
+
+gnMap<-mapToReactome(rownames(coll),
+                       type="gene",
+                       species=reactomeSpecies,
+                       build=84)
+
+grSets<-reactomeSets(species=reactomeSpecies,type="gene",mappedReactome=gnMap)
+gidx<-which(rowSums(coll)>0)
+filteredGn<-coll[gidx,]
+gtL<-log2(filteredGn+0.001)
+
+if(any(is.infinite(gtL))==TRUE) {
+message("I detected infinite values...")
+}
+
+ for(i in 1:length(appSession$comparisonSamples) ) {
+ idx<-which(colnames(gtL)==appSession$comparisonSamples[i])
+ colnames(gtL)[idx]<-paste0("COMP_0")
+ }
+
+   for(i in 1:length(appSession$controlSamples)) {
+  idx2<-which(colnames(gtL)==appSession$controlSamples[i])
+  colnames(gtL)[idx2]<-paste0("CNTRL_1")
+   }
+
+
+   
+sampleSplits<-split(gtL,colnames(gtL))
+sampleVars<-lapply(sampleSplits,var)
+print("Sample Group Variances")
+print(sampleVars)
+
+
+
+gn.Results<-qusageArm(gtL,
+                      colnames(gtL),
+                      "COMP_0-CNTRL_1",
+                       grSets,
+                       var.equal=FALSE,
+                       n.points=2^12)
+
+
+
+#plot results 
+kable(summary(gn.Results),caption="Gene Enrichment Statistics")
+p.vals<-pdf.pVal(gn.Results)
+q.vals<-p.adjust(p.vals,method="fdr")
+
+gn.Stats<-data.frame(names(gn.Results$pathways),q.vals)
+write.table(gn.Stats,file=paste0(appSession$enrich_outputPath,"/gene-enrichment-QValues.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+gs<-qsTable(gn.Results,number=numPathways(gn.Results))
+
+if(numPathways(gn.Results) <=10) {
+message("plotting confidence intervals of pathways")
+plotCIs(gn.Results)
+}
+
+if(numPathways(gn.Results)>10) {
+message(paste0("plotting ",numPathways(gn.Results), " detected pathways"))
+plot(gn.Results)
+}
+
+
+
+#plot URLs
+
+gn.Url<- getReactomeUrl(gs[,1])
+gn.DF<-data.frame(gs,gn.Url, stringsAsFactors=FALSE)
+
+
+data(reactomePathways,package="TxDbLite")
+
+gindX<-names(reactomePathways) %in% gn.DF$pathway.name
+for(i in 1:nrow(gn.DF)) {
+ginner<-which(gn.DF$pathway.name[i] == names(reactomePathways[gindX]))
+gn.DF$Pathway.Description[i]<-reactomePathways[gindX][[ginner]]
+}
+ gn.DF$Pathway.Description<-format(gn.DF$Pathway.Description,justify="left")
+
+kable(gn.DF,caption="Full Enrichment Gene Analysis")
+
+#printing a list of reactome IDs per hugo gene name
+reactomeIDgeneID<-lapply(grSets,function(x) mapHugo(x,byType="gene"))
+
+
+id<-gn.DF$pathway.name[(gn.DF$p.Value<0.1)]
+print("the following geneSets with a p.value <0.1 have the following gene names in the set:")
+print(reactomeIDgeneID[id])
+
+save(reactomeIDgeneID,file=paste0(appSession$enrich_outputPath,"/reactomeIDgeneID.RData"))
+
+gnReactomePathways<-reactomePathways[gindX]
+
+
+#save output
+save(gn.Results,file=paste0(appSession$enrich_outputPath,"/gn.Results.RData"))
+save(gnReactomePathways,file=paste0(appSession$enrich_outputPath,"/gnReactomePathways.RData"))
+save(grSets,file=paste0(appSession$enrich_outputPath,"/grSets.RData"))
+write.table(gn.DF,file=paste0(appSession$enrich_outputPath,"/gene-enrichment.txt"),quote=FALSE,row.names=FALSE,col.names=TRUE,sep="\t")
+
+```
+
+
+#Settings
+
+
+##Detected Uploaded Fastas
+```{r settings_input, message=FALSE, warning=FALSE, echo=FALSE}
+
+
+print(uniqTranscript)
+```
+
+##Input Species
+```{r species_intput, message=FALSE,warning=FALSE,echo=FALSE}
+print(reactomeSpecies)
+```
+
+##Design Matrix
+```{r settings_design,message=FALSE,warning=FALSE,echo=FALSE}
+kable(design,caption="Two Group Design Matrix")
+```
+
+##RUV Weighted Variance
+```{r settings_ruv,message=FALSE,warning=FALSE,echo=FALSE}
+kable(ruvResults$W,caption="RUV Derived Weights") 
+kable(ruvDesign, caption="RUV Design Matrix")
+ 
+```
+
+
+
+##AppSession Information
+```{r settings_appSess,message=FALSE,warning=FALSE,echo=FALSE}
+
+print(appSession)
+```

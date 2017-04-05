@@ -1,0 +1,102 @@
+# this uses the r-travis native syntax for 1/16/16 travis implementation
+#
+# See README.md for instructions, or for more configuration options,
+# see the wiki:
+#   https://github.com/craigcitro/r-travis/wiki
+#  checking now from ramsinghLab ~ master
+
+# this tests the gwa and arkas, where arkas.Rmd runs through the demo (merging, and plotting a heatmap of counts)
+language: 
+    - r
+    - c
+bioc_required: true
+
+#pandoc: true
+
+
+sudo: required
+dist: trusty
+
+env:
+    matrix:
+    - BIOC_USE_DEVEL="FALSE"
+
+r_github_packages:
+    - hadley/devtools
+
+apt_packages:
+   - gcc-4.6-base
+   - cpp-4.6 
+   - libgomp1
+   - libquadmath0
+   - libc6-dev
+   - build-essential 
+   - zlib1g-dev 
+   - libc6-dev 
+   - libcurl4-openssl-dev 
+   - r-cran-xml
+   - curl 
+   - cmake 
+   - zlibc 
+   - zlib1g-dev
+   - libhdf5-dev
+   - git
+#   - pandoc
+#   - texlive-latex-base
+#   - texlive-fonts-recommended
+#   - texlive-fonts-extra
+#   - texlive-latex-extra
+   - libcurl4-openssl-dev
+   - libxml2-dev
+   - samtools
+before_install:
+    - curl -OL http://raw.github.com/craigcitro/r-travis/master/scripts/travis-tool.sh
+    - chmod 755 ./travis-tool.sh
+    - sudo apt-get --yes install curl cmake zlibc zlib1g-dev
+    - sudo apt-get install -y libhdf5-dev
+    - cwd=$(pwd) && sudo mkdir ./KallistoSource && cd ./KallistoSource && sudo git clone https://github.com/pachterlab/kallisto.git && cd ./kallisto && sudo mkdir ./build && cd ./build && sudo cmake .. && sudo make && sudo make install && cd $cwd
+    - sudo R -e 'source("http://bioconductor.org/biocLite.R"); biocLite("BiocInstaller")'
+    - sudo R -e 'library(BiocInstaller);biocLite(c("rtracklayer","XML","biomaRt","RCurl"),ask=FALSE)'
+    - sudo R -e 'library(BiocInstaller);biocLite(c("org.Hs.eg.db","org.Mm.eg.db","parallel","jsonlite","qusage","GenomeInfoDb","limma","Biobase","SummarizedExperiment","rhdf5","matrixStats","GenomicRanges","GenomicFeatures","GRanglesList","Matrix","beeswarm","tools","graphite","roxygen2","knitr"),ask=FALSE )'
+     - sudo R -e 'library(BiocInstaller);biocLite(c("Homo.sapiens","Mus.musculus","RUVSeq","erccdashboard"),ask=FALSE)'
+     - sudo  R -e 'library(BiocInstaller);biocLite(c("DBI","RSQLite","ensembldb","stringdist","Biostrings","OrganismDbi","Rsamtools", "rmarkdown","nat.utils"),ask=FALSE)'
+
+ 
+
+bioc_packages: 
+   # - rversions
+   # - annotate
+   # - genefilter
+   # - RColorBrewer
+   # - geneplotter
+   # - BiocParallel
+   # - bitops
+   # - latticeExtra
+   # - hwriter
+   # - GenomicAlignments
+   # - ShortRead
+   # - EDASeq
+   # - rmarkdown
+   # - pathview
+   # - edgeR
+   # - ggplot2
+
+
+r_github_packages:
+
+    - RamsinghLab/TxDbLite
+    - arcolombo/RepDbLite.Hsapiens.2012
+    - arcolombo/EnsDbLite.Hsapiens.83
+    - RamsinghLab/arkas
+    - RamsinghLab/arkasData
+    
+script:
+    - sudo R -e 'library(rmarkdown);library(arkas);library(arkasData);render("./vignettes/arkas.Rmd")' 
+#    - sudo R -e 'library(rmarkdown); render("./vignettes/geneWiseAnalysis.Rmd")'    
+after_failure:
+    - sudo ./travis-tool.sh dump_logs
+
+notifications:
+  email:
+    on_success: change
+    on_failure: change

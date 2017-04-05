@@ -1,0 +1,59 @@
+Package: arkas
+Type: Package
+Title: A package that complements Kallisto for quick, informative *seq analysis
+Version: 0.44.4
+Date: 2016-07-10
+Author: Tim Triche, Jr., Anthony Colombo, Harold Pimentel
+Depends:
+    parallel,
+    jsonlite,
+    qusage,
+    ggplot2,
+    edgeR,
+    limma,
+    TxDbLite,
+    SummarizedExperiment,
+    Rsamtools,
+    beeswarm,
+    biomaRt,
+    tools
+Imports:
+    rhdf5,
+    matrixStats,
+    GenomicRanges,
+    SummarizedExperiment,
+    nat.utils,
+    Matrix,
+    RUVSeq
+Suggests:
+    knitr,
+    roxygen2,
+    HDF5Array,
+    EnsDbLite.Hsapiens.83,
+    RepDbLite.Hsapiens.2012
+VignetteBuilder: knitr
+Maintainer: Tim Triche, Jr. <tim.triche@gmail.com>
+Description: This package wraps various aspects of workflow automation 
+    (assembling transcriptomes, hashing indices after they have been built, 
+    checking versions, and generally avoiding annoyance factors) useful in 
+    the day-to-day operation of a transcriptome pseudoaligner/quantifier.
+    Tools for data extraction and (progressive) annotation of combined
+    or individual transcriptomes, quality control and normalization
+    (ERCC control plots and RUVSeq normalization), interpretation
+    (gene-level, transcript-level, pathway- and network-level output),
+    and interactions with cloud computing services such as BaseSpace
+    are loosely coupled within the default package workflow.
+    Please be aware that, while Arkas is licensed under the GPL,
+    Kallisto itself is free FOR NON-COMMERCIAL USAGE ONLY. For-profit
+    use of Kallisto requires a licensing agreement executed with the
+    Regents of the University of California. Kallisto is not included
+    within this package; Arkas assumes it is in the user's PATH.
+    Arkas' component parts are not restricted in this fashion
+    (although we cannot guarantee that all [pseudo]aligners will
+    necessarily work as well as Kallisto in end-to-end pipelines), and
+    most downstream analyses can proceed from any SummarizedExperiment.
+    Arkas' annotation functions, in particular, can greatly ease data
+    integration, as when comparing in-house results to those of major
+    genome and transcriptome sequencing projects such as TCGA and ICGC.
+License: GPL (>= 2)
+RoxygenNote: 5.0.1

@@ -1,0 +1,1 @@
+these scripts are required to process artemis work flow on the basespace container.  They include creating a design matrix, parsing the json inputs, and running artemis. More importantly, the json files are parsed by property name, where the property name is the input-id from the app form builder.json id.   

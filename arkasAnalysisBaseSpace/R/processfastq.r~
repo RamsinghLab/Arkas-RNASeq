@@ -1,0 +1,287 @@
+
+# this inputs the files from basespace DL through spacedock and conducts artemis workflow
+# @param  destDir           path directory to output, dummy
+# @import biomaRt
+# @import jsonlite
+# @import hash
+# @export 
+#processfastq<-function(destDir="."){
+library(artemis)
+library(jsonlite)
+library(hash)
+library(biomaRt)
+library(DT) #htmlwidgets for CSV as interactive
+source("/bin/createAppSession.R")
+source("/bin/createDesignMatrix.R")
+source("/bin/findTranscriptInput.R")
+source("/bin/renameAppSessionID.R")
+source("/bin/createOutputDirectory.R")
+source("/bin/findBootStrapValue.R")
+
+
+fastaFiles<-NULL
+fastaIndex<-NULL
+fileJSON<-fromJSON("/data/input/AppSession.json")
+#fastaPath is fixed within container
+fastaPath<-c("/Package_data/fasta")
+fastqPath<-c("/data/input/samples")
+    if(file.exists("/data/scratch/downloads")!=TRUE){
+system("mkdir /data/scratch/downloads")
+    if(file.exists("/data/scratch/downloads/samples")!=TRUE){
+    system("mkdir /data/scratch/downloads/samples")
+   }
+}#if mkdir /data/scratch/downloads
+
+scratchPath<-c("/data/scratch/downloads/samples")
+selectNames<-fileJSON$Properties$Items$Name
+project_Id<-fileJSON$Properties$Items$Content[[which(selectNames=="Input.project-id")]][1]$Id
+outputPath<-createOutputDirectory(selectNames)
+#programmatic values for bootstrap
+message("Parsing bootstrap values ... ")
+bootstrapValue<-findBootStrapValue(selectNames)
+
+#programmatic list for transcriptome selection
+transcriptomes<-findTranscriptInput(selectNames)
+
+appSession<-createAppSession(selectNames,transcriptomes,outputPath)
+
+#FIX ME : need to copy to scratch directory
+
+
+message("running quant ....")
+results <- lapply(appSession$samples,
+                    runKallisto,
+                    indexName=appSession$indexName,
+                    fastqPath=appSession$fastqPath,
+                    fastaPath=appSession$fastaPath,
+                    bootstraps=appSession$bootstraps,
+                    outputPath=appSession$outputPath)
+
+message("moving quantification files to appresults/SampleName")
+sampleNameDataFrame<-renameAppSessionID(selectNames,appSession)
+
+
+
+## merge 'em
+message("merging quant Kallisto for all samples")
+KallistoExperiment <- mergeKallisto(appSession$samples, outputPath=appSession$outputPath)
+
+#create design matrix
+design<-createDesignMatrix(selectNames)
+
+
+trannyX<-transcriptomes(KallistoExperiment)
+trannySplit<-unlist(strsplit(trannyX,","))
+trannySplit<-gsub(" ","",trannySplit)
+#The species libraries must be installed in /RLibraries
+RLibrariesFound<-lapply(trannySplit,function(x) dir("/RLibraries/")[grep(x,dir("/RLibraries/"))])
+message("TxDbLite libraries available:")
+message(paste(RLibrariesFound," ",sep=" "))
+
+    #FIX ME: add mouse and Drosph  TxDbLite libraries
+
+#loading HSapiens
+lapply(RLibrariesFound,function(x) library(x, character.only=TRUE))
+trnx<-unlist(RLibrariesFound)
+KallistoAnnotated<-suppressWarnings(annotateBundles(KallistoExperiment,trnx))
+
+#convert colnames
+ message("switching ID to sample Names...")
+     for ( i in 1:length(colnames(KallistoAnnotated))){
+        idIndex<-which(sampleNameDataFrame[,2]==colnames(KallistoAnnotated)[i])
+        colnames(KallistoAnnotated)[i]<-sampleNameDataFrame[idIndex,1]
+     }#{{{ for colname ID to Name
+
+
+#library(biomaRt)
+#FIX ME : species radio button needs fixing
+
+#FIX ME save expression results, need species-radio button Homo.sapiens.  save limma expression csv as HTML
+results<-geneWiseAnalysis(KallistoAnnotated,design=design,how="cpm",species="Homo.sapiens")
+write.csv(results$limmaWithMeta,file=paste0("/data/output/appresults/",project_Id,"/results/expressionCSV/DifferenctialExpressionResults.csv"),row.names=TRUE)
+limmaHTML<-datatable(results$limmaWithMeta)
+saveWidget(limmaHTML,file=paste0("/data/output/appresults/",project_Id,"/results/expressionCSV/limmaWithMeta.html"))
+
+
+# save KallistoAnnotated into output
+R_workspace<-paste0("/data/output/appresults/",project_Id,"/results/Rworkspace/","KallistoAnnotated.RData")
+save(KallistoAnnotated,file=R_workspace)
+
+
+#FIX ME : add heatmap plots.
+
+#remove NA
+  # heatmap_entries<-tpm[ rev(order(rowSds(tpm)))[1:100], ]
+  # heatmap_entries<-heatmap_entries[apply(heatmap_entries,1,function(x)!any(is.na(x))), , drop=F]
+
+
+ #save the heatmap in the outputPath
+  # pdf_output<-paste(outputPath_plots,"heatmap.pdf",sep="/")
+  # pdf(file=pdf_output)
+
+   #heatmap(heatmap_entries,
+    #    main="Repeat transcription, teratoma vs. normal")
+ # dev.off()
+#} #{{{ main
+
+################################FUNCTIONS##########################################
+
+.findTranscriptInput<-function(selectNames){
+
+transcriptInput<-fileJSON$Properties$Items$Items[which(selectNames=="Input.checkbox-transx")]
+hash=new.env(hash=TRUE,parent=emptyenv(),size=100L)
+transcriptomeValue<-list()
+transcriptomeValue[[1]]<-"ERCC.fa.gz"
+transcriptomeValue[2]<-"Homo_sapiens.GRCh38.81.cdna.all.fa.gz"
+transcriptomeValue[[2]][2]<-"Homo_sapiens.GRCh38.81.ncrna.fa.gz"
+transcriptomeValue[3]<-"Homo_sapiens.RepBase.20_07.merged.fa.gz"
+transcriptomeValue[4]<-"Mus_musculus.GRCm38.rel80.cdna.all.fa.gz"
+transcriptomeValue[[4]][2]<-"Mus_musculus.GRCm38.rel80.ncrna.fa.gz"
+transcriptomeValue[5]<-"Mus_musculus.RepBase.v20_05.mousub.fa.gz"
+transcriptomeValue[[5]][2]<-"Mus_musculus.RepBase.v20_05.rodrep.fa.gz"
+transcriptomeValue[6]<-"Drosophila_melanogaster.BDGP6.81.cdna.all.fa.gz"
+transcriptomeValue[[6]][2]<-"Drosophila_melanogaster.BDGP6.81.ncrna.fa.gz"
+transcriptomeValue[7]<-"Drosophila_melanogaster.v20_05.melansub.fa.gz"
+transcriptomeValue[[7]][2]<-"Drosophila_melanogaster.v20_05.melrep.fa.gz"
+
+transcriptomeKey<-  c("0",
+                      "2",
+                      "20",
+                       "1",
+                       "10",
+                        "3",
+                       "30"
+                       )
+hTrnx<-hash(transcriptomeKey,transcriptomeValue)
+
+transcriptomes<-lapply(unlist(transcriptInput),function(x) hTrnx[[x]])
+message("Parsing completed for user selected transcriptomes. O.K. ")
+return(unlist(transcriptomes))
+}
+
+
+.createOutputDirectory<-function(selectNames) {
+message("finding project ID ... ")
+project_Id<-fileJSON$Properties$Items$Content[[which(selectNames=="Input.project-id")]][1]$Id
+outputpath<-c("/data/output/appresults")
+outputPath<-paste(outputpath,project_Id,sep="/")
+message("creating /data/output/appresults/project-id directory")
+dir.create(outputPath)
+#results directory under project Id
+outputPath_results<-paste(outputPath,"results",sep="/")
+message("creating /data/output/appresults/project-id/results directory")
+dir.create(outputPath_results)
+#output path for samples
+outputPath_samples<-paste(outputPath,"results/abundance",sep="/")
+dir.create(outputPath_samples)
+#output path for R workspace
+outputPath_Rworkspace<-paste(outputPath,"results/Rworkspace",sep="/")
+dir.create(outputPath_Rworkspace)
+#output path for Plots
+outputPath_plots<-paste(outputPath,"results/plots",sep="/")
+dir.create(outputPath_plots)
+#output path for csv from limma gene wise analysis
+outputPath_csv<-paste(outputPath,"results/expressionCSV",sep="/")
+dir.create(outputPath_csv)
+sampleCompareNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Name
+outputPath_sampleCompareNames<-paste(outputPath_results,sampleCompareNames,sep="/")
+lapply(outputPath_sampleCompareNames,dir.create)
+sampleControlNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Name
+outputPath_sampleControlNames<-paste(outputPath_results,sampleControlNames,sep="/")
+lapply(outputPath_sampleControlNames,dir.create)
+message("finished creating output sub-directories")
+#programmatic values for bootstrap
+return(outputPath)
+}
+
+
+
+.findBootStrapValue<-function(selectNames){
+message("Parsing bootstrap values ... ")
+bootstrapValue<-fileJSON$Properties$Items$Content[which(selectNames=="Input.bootstrap-sampling")]
+bootstrapValue<-as.numeric(unlist(bootstrapValue))
+return(bootstrapValue)
+}
+
+
+.createAppSession<-function(selectNames,transcriptomes){
+appSession<-list()
+appSession$fastaFiles<-transcriptomes
+appSession$samples<-dir(fastqPath)[!grepl(".json",dir(fastqPath))]
+names(appSession$samples)<-appSession$samples
+appSession$fastqPath<-scratchPath
+
+message("copying samples from /data/input/samples to /data/scratch/downloads/samples...")
+amiSamples<-paste0(fastqPath,"/",appSession$samples)
+command<-paste0("cp -ra ",amiSamples," ",scratchPath,"/")
+scratchDestination<-paste0(scratchPath,"/",appSession$samples)
+   for(j in 1:length(scratchDestination)){
+    if(file.exists(scratchDestination[j])!=TRUE) {
+       message(paste0("creating scratch directory ",scratchDestination[j])) 
+       system(paste0("mkdir ",scratchDestination[j]))
+      }  
+
+    }#{create sample dir in scratch
+lapply(command,function(x) system(x))
+
+
+appSession$fastaPath<-fastaPath
+appSession$bootstraps<-bootstrapValue
+appSession$outputPath<-paste0(outputPath,"/results/abundance")
+stopifnot(all(lapply(transcriptomes,function(x) file.exists(paste0(fastaPath,"/",x)))=="TRUE"))
+message("transcriptome files exists, O.K., running index...")
+appSession$indexName <- indexKallisto(fastaFiles=appSession$fastaFiles, fastaPath=appSession$fastaPath)$indexName
+  message("completed appSession creation ... ")
+ return(appSession)
+}
+
+
+.renameAppSessionID<-function(selectNames){
+    sampleCompareNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Name
+    sampleCompareID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Id
+    sampleControlNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Name
+    sampleControlID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Id
+    DF<-data.frame(samples=c(sampleCompareNames,sampleControlNames),ID=c(sampleCompareID,sampleControlID),stringsAsFactors=FALSE)
+    inDex<-sapply(DF[,2], function(x) grep(x,dir(appSession$outputPath)))
+    outs<-dir(appSession$outputPath)[inDex]
+
+    for(i in 1:length(outs)){
+    sampleFromID<-DF[which(outs[i]==DF[,2]),1]
+    originalSource<-paste0(appSession$outputPath,"/",outs[i])
+    destin<-paste0(outputPath,"/","results","/",sampleFromID)
+    command<-paste0("cp -ra ",originalSource,"/. ",destin,"/")
+    system(command)
+    }#moving ID outs to sample Name out
+    
+   return(DF)
+ }#{{{main
+
+
+.createDesignMatrix<-function(selectNames){
+message("creating single covariate, two group comparison design matrix ...")
+#create vector of compare, control names,  rename.
+sampleCompareNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Name
+sampleControlNames<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Name
+
+
+sampleCompareID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.comparison-sample-id")]]$Id
+sampleControlID<-fileJSON$Properties$Items$Items[[which(selectNames=="Input.control-sample-id")]]$Id
+
+#stopifnot(length(sampleCompareNames)==length(sampleControlNames))
+totalNumberPairs<-(length(sampleCompareNames)+length(sampleControlNames))/2
+additionalColumns<-totalNumberPairs-1
+DF<-data.frame(samples=c(sampleCompareNames,sampleControlNames),ID=c(sampleCompareID,sampleControlID),Intercept=rep(1,length(c(sampleCompareNames,  sampleControlNames))),ControlVsComp=rep(0,length(c(sampleCompareNames,  sampleControlNames))), stringsAsFactors=FALSE)
+
+
+#find which ID is control, and which is not
+for(j in 1:nrow(DF)){
+if(DF[j,2] %in% sampleControlID){
+ DF[j,4]<-1
+   }
+}#For loop for marking Controls
+design<-DF[,2:ncol(DF)]
+design<-as.matrix(design[,2:ncol(design)])
+rownames(design)<-DF[,2]
+
+return(design)
+} #{{{ main

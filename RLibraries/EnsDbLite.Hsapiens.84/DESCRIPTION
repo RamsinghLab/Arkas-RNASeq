@@ -1,0 +1,16 @@
+Package: EnsDbLite.Hsapiens.84
+Title: Ensembl-based annotation package
+Description: Lightweight Ensembl transcript annotations
+Version: 1.0
+Author: .
+Maintainer: .<dev@null.com>
+Depends: TxDbLite
+Imports: GenomicFeatures, RSQLite
+License: Artistic-2.0
+organism: Homo sapiens
+species: Homo sapiens
+provider: Ensembl
+provider_version: GRCh38
+release_date: Tue Apr 12 13:53:44 2016
+resource_url: ftp://ftp.ensembl.org/pub/release-GRCh38
+biocViews: AnnotationData, EnsDbLite, Homo_sapiens

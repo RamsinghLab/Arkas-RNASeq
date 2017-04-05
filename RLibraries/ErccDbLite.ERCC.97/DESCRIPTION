@@ -1,0 +1,16 @@
+Package: ErccDbLite.ERCC.97
+Title: ERCC annotation package
+Description: lightweight ERCC spike-in annotations
+Version: 1.0
+Author: .
+Maintainer: . <dev@null.com>
+Depends: TxDbLite
+Imports: GenomicFeatures, RSQLite
+License: Artistic-2.0
+organism: N/A
+species: N/A
+provider: ERCC/NIST
+provider_version: N/A
+release_date: Mon Apr 25 17:51:38 2016
+resource_url: http://www.nist.gov/mml/bbd/ercc.cfm
+biocViews: AnnotationData, EnsDbLite, ERCC

@@ -1,0 +1,18 @@
+Package: arkasAnalysisBaseSpace
+Type: Package
+Title: A package the complements arkas for cloud computing
+Version: 0.0.02
+Date: 2016-04-29
+Author: Anthony R. Colombo
+Imports: DT,
+         arkas,
+         biomaRt,
+         jsonlite,
+         tools
+Suggests: roxygen2,
+          knitr
+VignetteBuilder: knitr
+Maintainer: Anthony Colombo <anthonycolombo60@gmail.com>
+Description: Arkas is a wrapper for kallisto and has additional pathway analysis methods included.  arkasBaseSpace is a package that allows for cloud computing over a cloud data storage system.
+License: GPL(>= 2)
+RoxygenNote: 5.0.1

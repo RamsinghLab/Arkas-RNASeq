@@ -1,0 +1,16 @@
+Package: EnsDbLite.Mmusculus.84
+Title: Ensembl-based annotation package
+Description: Lightweight Ensembl transcript annotations
+Version: 1.0
+Author: .
+Maintainer: .<dev@null.com>
+Depends: TxDbLite
+Imports: GenomicFeatures, RSQLite
+License: Artistic-2.0
+organism: Mus musculus
+species: Mus musculus
+provider: Ensembl
+provider_version: GRCm38
+release_date: Wed Apr 20 15:33:50 2016
+resource_url: ftp://ftp.ensembl.org/pub/release-GRCm38
+biocViews: AnnotationData, EnsDbLite, Mus_musculus
