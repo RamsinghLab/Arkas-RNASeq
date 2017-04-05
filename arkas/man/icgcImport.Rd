@@ -34,4 +34,3 @@ right now, this means only accepting gene-level summaries; may change later.
 \seealso{
 CountsAndFeaturesToKallistoExperiment
 }
-

@@ -37,4 +37,3 @@ FIXME: add Harold's quasi-normalized TPM method for tx-level comparisons.
 \seealso{
 SEtoKE
 }
-

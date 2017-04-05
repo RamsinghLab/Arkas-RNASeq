@@ -2,14 +2,14 @@
 % Please edit documentation in R/utils.R
 \docType{data}
 \name{utils}
-\alias{colAsVector}
-\alias{getFastaStub}
-\alias{getOrgDetails}
-\alias{getOrganismAbbreviation}
-\alias{getSupportedAbbreviations}
-\alias{getTxDbLiteName}
-\alias{idStub}
 \alias{utils}
+\alias{idStub}
+\alias{getFastaStub}
+\alias{colAsVector}
+\alias{getSupportedAbbreviations}
+\alias{getOrganismAbbreviation}
+\alias{getOrgDetails}
+\alias{getTxDbLiteName}
 \title{utility functions}
 \format{An object of class \code{NULL} of length 0.}
 \usage{
@@ -55,5 +55,5 @@ utility functions
 \item \code{getTxDbLiteName}: get the name of the package/sqlite file for a FASTA-based annotation
 NOTE: as of 1.9.25, this is based on DbType.Org.Version
 }}
-\keyword{datasets}
 
+\keyword{datasets}

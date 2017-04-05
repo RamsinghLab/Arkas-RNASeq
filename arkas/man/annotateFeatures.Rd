@@ -24,4 +24,3 @@ a GRanges or a KallistoExperiment, depending on `what`
 annotate features (genes or transcripts) against (say) EnsemblDb
 this is becoming the default dispatcher for almost all annotation
 }
-

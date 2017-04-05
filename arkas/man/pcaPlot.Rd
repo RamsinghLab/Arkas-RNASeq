@@ -15,4 +15,3 @@ a pca plot of an cpm, tpm, length, or median abs. deviations
 \description{
 plots pca of each kexp assay
 }
-

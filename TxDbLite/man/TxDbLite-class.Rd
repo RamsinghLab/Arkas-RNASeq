@@ -3,8 +3,8 @@
 \docType{class}
 \name{TxDbLite-class}
 \alias{TxDbLite-class}
-\alias{genesBy,TxDbLite-method}
 \alias{transcriptsBy,TxDbLite-method}
+\alias{genesBy,TxDbLite-method}
 \title{A parent class for lightweight Ensembl and RepBase/RepeatMasker annotations}
 \usage{
 \S4method{transcriptsBy}{TxDbLite}(x, by = c("gene", "promoter", "tx_biotype",

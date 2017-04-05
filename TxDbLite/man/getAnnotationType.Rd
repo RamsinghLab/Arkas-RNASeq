@@ -9,4 +9,3 @@ getAnnotationType(fastaFile)
 \description{
 (try to) figure out what type of annotation package to create
 }
-

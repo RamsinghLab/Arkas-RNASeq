@@ -21,4 +21,3 @@ a data.frame, if all goes well
 \description{
 a wrapper for biomaRt::getBM
 }
-

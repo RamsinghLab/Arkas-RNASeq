@@ -24,4 +24,3 @@ the name of the package
 \description{
 create an EnsDbLite package from sqlite file (usually via ensDbLiteFromFasta)
 }
-

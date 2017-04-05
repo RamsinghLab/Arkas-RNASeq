@@ -17,4 +17,3 @@ a TxDbLite object
 \description{
 Create a TxDbLite object (usually called by subclass constructors)
 }
-

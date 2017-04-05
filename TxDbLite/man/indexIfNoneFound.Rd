@@ -14,4 +14,3 @@ return   the index, invisibly}
 \description{
 helper function for findDupes
 }
-

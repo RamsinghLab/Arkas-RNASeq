@@ -22,4 +22,3 @@ example:
 \code{ data("NS", package="artemisData") }
 \code{ formatResults(geneWiseAnalysis(NS, exptData(NS)$design)) }
 }
-

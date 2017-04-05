@@ -19,4 +19,3 @@ a string, possibly concatenated from multiple elements
 \description{
 handy string splitting function that operates on basename(x)
 }
-
