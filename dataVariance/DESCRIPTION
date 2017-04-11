@@ -1,0 +1,14 @@
+Package: dataVariance
+Type: Package
+Title: A package that complements Kallisto for quick, informative *seq analysis
+Version: 0.0.1
+Date: 2015-09-16
+Author: Anthony Colombo, Tim Triche Jr.
+Depends: parallel, jsonlite, GenomeInfoDb, limma, TxDbLite, SummarizedExperiment, tools, arkas
+Imports: rhdf5, matrixStats, GenomicRanges, GenomicFeatures, Matrix
+Suggests: roxygen2, knitr
+VignetteBuilder: VignetteBuilder: knitr
+Maintainer: Anthony R. Colombo <anthonycolombo60@gmail.com>
+Description: The package can compare data variance of two Kallito Experiments used with differring versions of Kallisto.
+License: GPL (>= 2)
+RoxygenNote: 6.0.1
