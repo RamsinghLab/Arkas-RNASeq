@@ -9,11 +9,11 @@ transcriptInput<-fileJSON$Properties$Items$Items[which(selectNames=="Input.check
 hash=new.env(hash=TRUE,parent=emptyenv(),size=100L)
 transcriptomeValue<-list()
 transcriptomeValue[[1]]<-"ERCC.fa.gz"
-transcriptomeValue[2]<-"Homo_sapiens.GRCh38.84.cdna.all.fa.gz"
-transcriptomeValue[[2]][2]<-"Homo_sapiens.GRCh38.84.ncrna.fa.gz"
+transcriptomeValue[2]<-"Homo_sapiens.GRCh38.88.cdna.all.fa.gz"
+transcriptomeValue[[2]][2]<-"Homo_sapiens.GRCh38.88.ncrna.fa.gz"
 transcriptomeValue[3]<-"Homo_sapiens.RepBase.21_03.merged.fa.gz"
-transcriptomeValue[4]<-"Mus_musculus.GRCm38.84.cdna.all.fa.gz"
-transcriptomeValue[[4]][2]<-"Mus_musculus.GRCm38.84.ncrna.fa.gz"
+transcriptomeValue[4]<-"Mus_musculus.GRCm38.88.cdna.all.fa.gz"
+transcriptomeValue[[4]][2]<-"Mus_musculus.GRCm38.88.ncrna.fa.gz"
 transcriptomeValue[5]<-"Mus_musculus.RepBase.21_03.merged.fa.gz"
 #transcriptomeValue[[5]][2]<-"Mus_musculus.RepBase.v20_05.rodrep.fa.gz"
 transcriptomeValue[6]<-"Drosophila_melanogaster.BDGP6.81.cdna.all.fa.gz"

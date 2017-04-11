@@ -67,10 +67,10 @@ stopifnot(all(appSession$samples %in% dir(scratchPath)[!grepl(".json",dir(scratc
 if(all(is.na(unlist(fileJSON$Properties$Items$Items[which(selectNames=="Input.app-result-id")])))==TRUE) {
 print("Detected No user Fasta input...")
   if(jsonSpecies=="Mus.musculus"){
-   appSession$indexName<-"ERCC_mergedWith_Mus_musculus.GRCm38.84.cdna.all_mergedWith_Mus_musculus.GRCm38.84.ncrna_mergedWith_Mus_musculus.RepBase.21_03.mergedkallisto.0.42.4.fa.kidx"  
+   appSession$indexName<-"ERCC_mergedWith_Mus_musculus.GRCm38.88.cdna.all_mergedWith_Mus_musculus.GRCm38.88.ncrna_mergedWith_Mus_musculus.RepBase.21_03.mergedkallisto.0.43.0.fa.kidx"  
    }
   if(jsonSpecies=="Homo.sapiens"){
-   appSession$indexName<-"ERCC_mergedWith_Homo_sapiens.GRCh38.84.cdna.all_mergedWith_Homo_sapiens.GRCh38.84.ncrna_mergedWith_Homo_sapiens.RepBase.21_03.mergedkallisto.0.42.4.fa.kidx"
+   appSession$indexName<-"ERCC_mergedWith_Homo_sapiens.GRCh38.88.cdna.all_mergedWith_Homo_sapiens.GRCh38.88.ncrna_mergedWith_Homo_sapiens.RepBase.21_03.mergedkallisto.0.43.0.fa.kidx"
     }
 }
 #if(!any(is.na(unlist(fileJSON$Properties$Items$Items[which(selectNames=="Input.app-result-id")])))==TRUE) {
